@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -53,13 +54,22 @@
                 
                 <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-emerald-800">
                     <div>
-                        <p class="text-[11px] text-emerald-300">Net Profit (After Exp)</p>
-                        <p id="dash-total-profit" class="text-lg font-bold">₹0.00</p>
+                        <p class="text-[11px] text-emerald-300">Gross Business Profit</p>
+                        <p id="dash-gross-profit" class="text-base font-bold">₹0.00</p>
                     </div>
                     <div>
+                        <p class="text-[11px] text-emerald-300">Net Profit (After Exp)</p>
+                        <p id="dash-total-profit" class="text-lg font-bold text-amber-300">₹0.00</p>
+                    </div>
+                </div>
+                <div class="mt-3 pt-3 border-t border-emerald-800 grid grid-cols-2 gap-3">
+                    <div>
                         <p class="text-[11px] text-emerald-300">Owner Earnings</p>
-                        <p id="dash-owner-earning" class="text-lg font-bold text-emerald-400">₹0.00</p>
-                        <p class="text-[10px] text-emerald-300" id="dash-owner-orders-count">from 0 orders</p>
+                        <p id="dash-owner-earning" class="text-base font-bold text-emerald-400">₹0.00</p>
+                    </div>
+                    <div>
+                        <p class="text-[11px] text-emerald-300">Total Expenses Deducted</p>
+                        <p id="dash-total-general-exp-card" class="text-base font-bold text-red-300">₹0.00</p>
                     </div>
                 </div>
             </div>
@@ -73,6 +83,14 @@
                 <div class="flex justify-between items-center text-xs bg-gray-50 p-2.5 rounded-lg border">
                     <span class="text-gray-600">Total Business Expenses Deducted:</span>
                     <span id="dash-total-general-exp" class="font-bold text-red-600">₹0.00</span>
+                </div>
+
+                <!-- Expenses List Breakdown -->
+                <div class="pt-2">
+                    <h4 class="text-[11px] font-bold text-gray-500 uppercase mb-2">Expense Records (Enthinokke chelavu aayi)</h4>
+                    <div id="expenses-list-container" class="space-y-2 max-h-40 overflow-y-auto">
+                        <p class="text-xs text-gray-400 italic">No expenses added yet.</p>
+                    </div>
                 </div>
             </div>
 
@@ -483,7 +501,6 @@
         window.db = db;
         window.FB = { collection, getDocs, setDoc, deleteDoc, doc };
 
-        // Load data from Firestore on startup
         loadFromFirebase();
     </script>
 
@@ -522,7 +539,6 @@
             if(local) {
                 appData = local;
             } else {
-                // Default initial items if empty
                 appData.items = [
                     { id: 'i1', name: 'Floral Frock', code: 'DRS-01', price: 1500, image: 'https://images.unsplash.com/photo-1515372039744-b8f02a3ae446?w=300' },
                     { id: 'i2', name: 'Designer Anarkali', code: 'DRS-02', price: 3200, image: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?w=300' }
@@ -537,21 +553,18 @@
         }
 
         async function saveDataToCloud(collectionName, id, data) {
-            // Save locally first for instant UI response
             localStorage.setItem('kaiz_sooq_data', JSON.stringify(appData));
             refreshUI();
 
-            // Sync to Firebase Firestore cloud database
             if(window.db && window.FB) {
                 try {
-                    await window.FB.setDoc(window.FB.doc(window.db, collectionName, id), data);
+                    await window.FB.setDoc(window.FB.doc(window.db, collectionName, String(id)), data);
                     document.getElementById('sync-status').innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Saved';
                     setTimeout(() => {
                         document.getElementById('sync-status').innerHTML = '<i class="fa-solid fa-cloud"></i> Synced';
                     }, 2000);
                 } catch(e) {
                     console.error("Cloud save error:", e);
-                    alert('Saved locally, but cloud sync failed. Check Firebase rules.');
                 }
             }
         }
@@ -562,7 +575,7 @@
 
             if(window.db && window.FB) {
                 try {
-                    await window.FB.deleteDoc(window.FB.doc(window.db, collectionName, id));
+                    await window.FB.deleteDoc(window.FB.doc(window.db, collectionName, String(id)));
                 } catch(e) {
                     console.error("Cloud delete error:", e);
                 }
@@ -627,7 +640,14 @@
             closeModal('modal-expense');
         }
 
-        // Item Store Functions
+        function deleteGeneralExpense(id) {
+            if(confirm('Are you sure you want to delete this expense?')) {
+                appData.expenses = appData.expenses.filter(ex => ex.id !== id);
+                deleteDataFromCloud('expenses', id);
+            }
+        }
+
+        // Item Store Functions with Base64 Image Reader
         function openNewItemModal() {
             document.getElementById('item-modal-title').innerText = "Add New Dress Item";
             document.getElementById('form-item').reset();
@@ -652,9 +672,18 @@
                     alert('File size exceeds 10MB limit!');
                     return;
                 }
-                imageUrl = URL.createObjectURL(fileInput.files[0]);
+                const reader = new FileReader();
+                reader.onload = function(uploadEvent) {
+                    const base64Image = uploadEvent.target.result;
+                    finishSavingItem(id, name, code, price, base64Image);
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                finishSavingItem(id, name, code, price, imageUrl);
             }
+        }
 
+        function finishSavingItem(id, name, code, price, imageUrl) {
             const itemObj = { id, name, code, price, image: imageUrl };
             const existingIdx = appData.items.findIndex(i => i.id === id);
             if(existingIdx >= 0) {
@@ -1019,14 +1048,34 @@
             
             const totalGenExp = (appData.expenses || []).reduce((sum, e) => sum + e.amount, 0);
             document.getElementById('dash-total-general-exp').innerText = `₹${totalGenExp}`;
+            document.getElementById('dash-total-general-exp-card').innerText = `₹${totalGenExp}`;
 
             const netProfit = grossProf - totalGenExp;
             const totalOwner = customers.reduce((sum, c) => sum + c.ownerAmt, 0);
 
             document.getElementById('dash-total-revenue').innerText = `₹${totalRev}`;
+            document.getElementById('dash-gross-profit').innerText = `₹${grossProf}`;
             document.getElementById('dash-total-profit').innerText = `₹${netProfit}`;
             document.getElementById('dash-owner-earning').innerText = `₹${totalOwner}`;
             document.getElementById('dash-owner-orders-count').innerText = `from ${customers.length} orders`;
+
+            // Render Expenses Breakdown List
+            let expListHtml = '';
+            (appData.expenses || []).forEach(ex => {
+                expListHtml += `
+                    <div class="bg-gray-50 p-2 rounded-lg border flex justify-between items-center text-xs">
+                        <div>
+                            <p class="font-bold text-gray-800">${ex.title}</p>
+                            <p class="text-[10px] text-gray-500">Date: ${ex.date}</p>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="font-bold text-red-600">₹${ex.amount}</span>
+                            <button onclick="deleteGeneralExpense('${ex.id}')" class="text-red-500 hover:text-red-700 px-1"><i class="fa-solid fa-trash text-xs"></i></button>
+                        </div>
+                    </div>
+                `;
+            });
+            document.getElementById('expenses-list-container').innerHTML = expListHtml || '<p class="text-xs text-gray-400 italic">No expenses added yet.</p>';
 
             // LEDI vs BEBI breakdown
             const lediCust = customers.filter(c => c.platform === 'LEDI');
@@ -1167,3 +1216,4 @@
     </script>
 </body>
 </html>
+
